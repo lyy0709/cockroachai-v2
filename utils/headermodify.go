@@ -30,6 +30,20 @@ func HeaderModify(headers *http.Header) {
 	headers.Del("Cf-Access-Client-Device-Name")
 	headers.Del("Cf-Access-Client-Device-Brand")
 
+	headers.Set("Access-Control-Allow-Origin", "*")
+	headers.Del("Content-Security-Policy")
+	headers.Del("Content-Security-Policy-Report-Only")
+	headers.Del("X-Frame-Options")
+	headers.Del("X-XSS-Protection")
+	headers.Del("X-Content-Type-Options")
+	headers.Del("X-Permitted-Cross-Domain-Policies")
+	headers.Del("Referrer-Policy")
+	// 删除可能导致内容长度不匹配的头部
+	headers.Del("Set-Cookie")
+	headers.Del("report-to")
+	headers.Del("Content-Encoding")
+	headers.Del("Content-Length")
+
 	// 一些奇怪的东西
 	headers.Del("x-middleware-prefetch")
 

@@ -1,42 +1,15 @@
 package config
 
 import (
-	"net/url"
-	"time"
-
-	"github.com/gogf/gf/v2/encoding/gjson"
-	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/gogf/gf/v2/frame/g"
-	"github.com/gogf/gf/v2/net/gclient"
-	"github.com/gogf/gf/v2/os/gcache"
 	"github.com/gogf/gf/v2/os/gctx"
-	"github.com/gogf/gf/v2/os/gfile"
-	"github.com/gogf/gf/v2/os/gview"
-	"github.com/gogf/gf/v2/text/gstr"
-	"github.com/gogf/gf/v2/util/guid"
 )
 
 var (
-	PORT         = 8080                                // 端口
-	AssetPrefix  = "https://oaistatic-cdn.closeai.biz" // 资源前缀
-	CacheBuildId = "__VtdGuo2T55cu1fqCkoX"             // 缓存版本号
-	BuildId      = "__VtdGuo2T55cu1fqCkoX"             // 线上版本号
-	Gclient      = g.Client()                          // http客户端
-	Ja3Proxy     *url.URL                              // ja3代理
-	ArkoseUrl    = "/v2/"
-	OPENAIURL, _ = url.Parse("https://chatgpt.com")
-
-	envScriptTpl = `
-	<script src="/list.js"></script>
-	<script>
-	window.__arkoseUrl="{{.ArkoseUrl}}";
-	window.__assetPrefix="{{.AssetPrefix}}";
-	</script>
-	`
-	PowerBy       = `<a href="https://github.com/cockroachai/" target="_blank">Powered By cockroachai</a>`
-	ProxyClient   *gclient.Client
-	AdminPassword = guid.S()
-	SessionCache  = gcache.New()
+	PORT     = 8080 // 端口
+	BaseUrl  = "https://gemini.google.com"
+	ProxyURL = ""
+	Cookie   = "SEARCH_SAMESITE=CgQI4J4B; HSID=As8nIF2hxV-f-aihC; SSID=AR_-VmvR_rCgdGDTn; APISID=Bu0N58TYCzTumLdL/A88hD8SwRz6pJddNU; SAPISID=g0QSuX0gTVfYivvW/AuHIzYfk_Wd4wnp8B; __Secure-1PAPISID=g0QSuX0gTVfYivvW/AuHIzYfk_Wd4wnp8B; __Secure-3PAPISID=g0QSuX0gTVfYivvW/AuHIzYfk_Wd4wnp8B; _gcl_au=1.1.765220742.1762925947; _ga=GA1.1.1794299751.1762925947; SID=g.a0003wjzqDcErsvgoQBdaiE7uenQxJQwnYIp_EzFFAD4C7Kks-CqVLss6brJzDKIfgbj5zdU8AACgYKATMSARISFQHGX2Mid_sZRcsR87co8zTosoz-1xoVAUF8yKqzpsmTReO6XZIZy5h5iLEs0076; __Secure-1PSID=g.a0003wjzqDcErsvgoQBdaiE7uenQxJQwnYIp_EzFFAD4C7Kks-CqCNL06IR7fUJwxoSfzR0EcwACgYKAbYSARISFQHGX2MiljcEacKy-l-OGdN8M0t6PBoVAUF8yKplkIY7R9BQdksmrBOKHZF-0076; __Secure-3PSID=g.a0003wjzqDcErsvgoQBdaiE7uenQxJQwnYIp_EzFFAD4C7Kks-CqTBlJdzp4Og3-Cf88xM_CDgACgYKAYoSARISFQHGX2MieFWSmP8hwVojxfCRqpH7XRoVAUF8yKoFSXfemwMVfPKl2yP7LyFv0076; AEC=AaJma5vVZKmCsFRyVYclvXltfBECZgw7bHBB41WpBp-LLiGW28ZHiU_aSIM; S=billing-ui-v3=HP0NxIvBcTnAqIy0U8qffiYkXau42Lyh:billing-ui-v3-efe=HP0NxIvBcTnAqIy0U8qffiYkXau42Lyh; __Secure-ENID=29.SE=E7ipcH13Fmx5LxWJE_qQe17zPc0Sf8iEh1E_qqPhzvYMNB5wqB0tBd54czWUxI0apr9RJ90wLc4QHvW5jhZMFqpnmwKe_bnFL5H98NmCwxyM0_3WiJv38lSMOrFeuokH_PwwnWTvScWOEOBtq09SQJpHXGXZYsBt4U2qmVovnQT8YxLRTxASP4d1HKyPZ_SUIILzE4iXsePOJuHn99gF5uY2kRadRSGcJ0QjWUgjCFrEm_Hm8wP0AYiAS2Inf2iGVt49hwwiu7wgweope9NnqL5xu_iq_NTzkd3bc4fDNXqRL-GYt1hK6XcN6YeZJRJyJVIE4TboIrCTOkP8JxJM-li8W361Db3w7jheOTBO8wBhHvJFiK65HKmGro0P_w; NID=526=TX-zcXDgmg8v24-Hlr6TSb89PWhEknmA4DbNRtYHjKuubv1qkK0SeUpSBalyIqjNUxMA-s2ng0OAGAb3ATrrc4way6QFMiK4N4XVb27ADQKxDxzoV-2M5IFoDcLKcnLfdh5HZnfge3i4MH-LHYmWoxuSTkRYmudN6eq6kc_1RtxUEYBXkCcbI7bi5OtwfZuIOvs1pJAG7JFf9rzNeODFvaIBKrmFz_ywMBUiUG0J1AWmZhleKf2zEJj9m6-dVOBUVGLd6ChL35dfGLU1SpYc5X3rZZCF0AFIEqIaMSVIufYNZsFejqld_5HT-BV-JhKXMzdyirl-kxXvZCuf1yIsF4_VxHr-yr2vW0Yac7C0PXZ8q940qQJAmSN2kp_wtWyCymVKDtZzsjwTj-97Gz13vpB06I0iVKkbXQMBrJeFfXe3h8OXHCBn5-HyNjTsD69HjiAR6Wju8HSSQeGfTAPvh4ei-pCWwHiq9SfgcMIKwNSeHeD3-3_nY51OPTiG7NC-IKJq6vl5ZtwOy7rM0Z-9c9DjgH-EV69y2MQ_Rz3T64i0mdHaiDeFHVjnPSqCrgg2Bekmj3fUKmrDSQkvRoB_0-kKBrUgOCtbAujKoz7M5JTbIGYc7jzLrGWNARs7Y3zJKEJph6qaBLJSpZrJJ-_ruBlC4faEAp9ayTAvB7RzNt-SAF4PoCot5cBwAdiy_EzBInOLuhwnc8wSNYDGx9sCZ2AEspR3rduFxCHqsi-yMKadueIVsBuTwsv0hBF2eZdxX5lFTaRX667UiP0MLjUEWEtJ8qYt3O__0A3LOB7mN-ucn0Zjpxi43DchvhOAdy1MbpdmbCUvcJhijDJ_qoqzEDzxRuA8edWP8AW9HINniLUbIcjLprAvl5NuvuEdreZa-FPYoq6sPL-2GFe7agtvLVBiGy51ySHUO6XZMucj2TemTa8--Fc5dovJ62jct6P1IW3TqeF0O_-t54L3rnnrLSXt2J8PAG78RXupwZUv52IgsDvV6pqP1DxHVAFT7z3v7UdykVMyplV7JJaZza7ugzWagEkcWwVi3IO34FbpJSHAgCrMOiq_BCG72-yXjDj4-2ZkJEjnEoU9QzkoA33WlXIaDM6tZwbGh9ZpRDyhylbS6RrWkuWctSzQjKCX3-eMLBOUolAMbR_SKME70yOpiQ; __Secure-1PSIDTS=sidts-CjIBwQ9iI5UVfsEOyDRym3rY0TFBUfACOp8meqYg4RSz7qnlqA3DQuQzvwAJjDIZkDPGtxAA; __Secure-3PSIDTS=sidts-CjIBwQ9iI5UVfsEOyDRym3rY0TFBUfACOp8meqYg4RSz7qnlqA3DQuQzvwAJjDIZkDPGtxAA; _ga_WC57KJ50ZZ=GS2.1.s1764417170$o20$g1$t1764419690$j58$l0$h0; _ga_BF8Q35BMLM=GS2.1.s1764417233$o15$g1$t1764419691$j60$l0$h0; SIDCC=AKEyXzV5y0Ix13ETzALECX9P2NT-jr6nZvU7fJGxinDWxjMU6x186xzWFihR_90Fnj0Khsw0sA; __Secure-1PSIDCC=AKEyXzXtPurudJExhV2_TorNAe1kHmaujx1tFDYW8e0VPk8q66zwlfmIV7bfLz06Prpe4ZdLHA; __Secure-3PSIDCC=AKEyXzXwV6OnctP0GBL1ImbXxrYT_dnl46MWPQi_u4IvENNb9GBy1crHZn-aRMFuU0ipyqqafA"
 )
 
 func init() {
@@ -47,205 +20,9 @@ func init() {
 		PORT = port
 	}
 	g.Log().Info(ctx, "PORT:", PORT)
-	// 读取资源前缀
-	assetPrefix := g.Cfg().MustGetWithEnv(ctx, "ASSET_PREFIX").String()
-	if assetPrefix != "" {
-		AssetPrefix = assetPrefix
+	cookie := g.Cfg().MustGetWithEnv(ctx, "COOKIE").String()
+	if cookie != "" {
+		Cookie = cookie
 	}
-	g.Log().Info(ctx, "ASSET_PREFIX:", AssetPrefix)
-
-	// 读取ja3代理
-	ja3Proxy := g.Cfg().MustGetWithEnv(ctx, "JA3_PROXY").String()
-	if ja3Proxy == "" {
-		panic("JA3_PROXY is required")
-	}
-	u, err := url.Parse(ja3Proxy)
-	if err != nil {
-		panic(err)
-	}
-	Ja3Proxy = u
-	g.Log().Info(ctx, "JA3_PROXY:", Ja3Proxy.String())
-
-	// 读取powerBy
-	powerBy := g.Cfg().MustGetWithEnv(ctx, "POWER_BY").String()
-	if powerBy != "" {
-		PowerBy = powerBy
-	}
-	g.Log().Info(ctx, "POWER_BY:", PowerBy)
-
-	// 读取adminPassword
-	adminPassword := g.Cfg().MustGetWithEnv(ctx, "ADMIN_PASSWORD").String()
-	if adminPassword != "" {
-		AdminPassword = adminPassword
-	}
-	g.Log().Info(ctx, "ADMIN_PASSWORD:", AdminPassword)
-
-	// 检查版本号并同步资源
-	cacheBuildId := CheckVersion(ctx, AssetPrefix)
-	if cacheBuildId != "" {
-		CacheBuildId = cacheBuildId
-	}
-	g.Log().Info(ctx, "CacheBuildId:", CacheBuildId)
-
-	// 获取线上版本号
-	buildId := GetBuildId(ctx)
-	if buildId != "" {
-		BuildId = buildId
-	}
-	g.Log().Info(ctx, "BuildId:", BuildId)
-	// 每小时更新一次
-	go func() {
-		for {
-			time.Sleep(time.Hour)
-			build := GetBuildId(ctx)
-			if build != "" {
-				BuildId = build
-			}
-			g.Log().Info(ctx, "BuildId:", BuildId)
-			cacheBuildId := CheckVersion(ctx, AssetPrefix)
-			if cacheBuildId != "" {
-				CacheBuildId = cacheBuildId
-			}
-			g.Log().Info(ctx, "CacheBuildId:", CacheBuildId)
-		}
-	}()
-	ProxyClient = g.Client().Proxy(Ja3Proxy.String()).SetBrowserMode(true).SetHeaderMap(g.MapStrStr{
-		"Origin":     "https://chatgpt.com",
-		"Referer":    "https://chatgpt.com/",
-		"Host":       "chatgpt.com",
-		"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-	})
-
-	// 加载session
-	_, err = LoadSession(ctx)
-	if err != nil {
-		g.Log().Error(ctx, "LoadSession Error: ", err)
-	}
-	g.Log().Info(ctx, "LoadSession Success")
-
-}
-
-// 检查版本号并同步资源
-func CheckVersion(ctx g.Ctx, assetPrefix string) (CacheBuildId string) {
-	// 读取 assetPrefix/version
-	versionVar := Gclient.GetVar(ctx, assetPrefix+"/version.json")
-	CacheBuildId = gjson.New(versionVar).Get("cacheBuildId").String()
-	g.Log().Infof(ctx, "Get config From %s ,CacheBuildId: %s", AssetPrefix, CacheBuildId)
-	if CacheBuildId == "" {
-		return ""
-	}
-	// 读取buildDate目录索引
-	indexUrl := assetPrefix + "/template/" + CacheBuildId + "/index.txt"
-	g.Log().Info(ctx, "Get files From ", indexUrl)
-	buildDateVar := Gclient.GetVar(ctx, indexUrl).String()
-	if buildDateVar == "" {
-		return ""
-	}
-	// 按回车分割
-	buildDateList := gstr.Split(buildDateVar, "\n")
-	g.Dump(buildDateList)
-	// 遍历目录索引 如果没有就下载
-	for _, v := range buildDateList {
-		if v == "" {
-			continue
-		}
-		// 检查文件是否存在
-		if !gfile.Exists("./resource/template/dynamic_templates/" + CacheBuildId + "/" + v) {
-			g.Log().Infof(ctx, "Download %s", v)
-			// 下载文件
-			res, err := Gclient.Get(ctx, assetPrefix+"/template/"+CacheBuildId+"/"+v)
-			if err != nil {
-				g.Log().Error(ctx, "Download  Error: ", v, err)
-				return ""
-			}
-			defer res.Close()
-			if res.StatusCode != 200 {
-				g.Log().Error(ctx, "Download  Error: ", v, res.StatusCode)
-				return ""
-			}
-			// 写入文件
-			err = gfile.PutBytes("./resource/template/dynamic_templates/"+CacheBuildId+"/"+v, res.ReadAll())
-			if err != nil {
-				g.Log().Error(ctx, "Download  Error: ", v, err)
-				return ""
-			}
-		}
-	}
-
-	return
-}
-
-func GetEnvScript(ctx g.Ctx) string {
-	script, err := gview.ParseContent(ctx, envScriptTpl, g.Map{
-		"ArkoseUrl":   ArkoseUrl,
-		"AssetPrefix": AssetPrefix,
-	})
-	if err != nil {
-		g.Log().Error(ctx, "GetEnvScript Error: ", err)
-		return ""
-	}
-	return script
-}
-
-// 获取版本号
-func GetBuildId(ctx g.Ctx) string {
-	resVar := Gclient.GetVar(ctx, "https://tcr9i.xyhelper.cn/ping")
-	// gjson.New(resVar).Dump()
-	buildId := gjson.New(resVar).Get("buildId").String()
-	return buildId
-
-}
-
-// 刷新账号信息
-func RefreshSession(ctx g.Ctx, refreshCookie string) (session *gjson.Json, err error) {
-	res, err := ProxyClient.SetCookie("__Secure-next-auth.session-token", refreshCookie).SetCookie("oai-dm-tgt-c-240329","2024-04-02").Get(ctx, "https://chatgpt.com/api/auth/session")
-	if err != nil {
-		g.Log().Error(ctx, "RefreshUserToken Error: ", err)
-		return
-	}
-	defer res.Close()
-	if res.StatusCode != 200 {
-		err = gerror.Newf("RefreshUserToken Error: %d", res.StatusCode)
-		g.Log().Error(ctx, err)
-		return
-	}
-	rrefreshCookie := res.GetCookie("__Secure-next-auth.session-token")
-	// g.Log().Info(ctx, "RefreshUserToken", refreshCookie)
-	if rrefreshCookie != "" {
-		refreshCookie = rrefreshCookie
-	}
-	session = gjson.New(res.ReadAll())
-	session.Set("refreshCookie", refreshCookie)
-	// 将session写入 config/session.json
-	err = gfile.PutContents("./config/session.json", session.String())
-	// 将session写入缓存
-	SessionCache.Set(ctx, "session", session, 0)
-
-	return
-}
-
-// 加载session
-func LoadSession(ctx g.Ctx) (session *gjson.Json, err error) {
-	sessionStr := gfile.GetContents("./config/session.json")
-	if sessionStr == "" {
-		err = gerror.New("session.json is empty")
-		return
-	}
-	session = gjson.New(sessionStr)
-	SessionCache.Set(ctx, "session", session, 0)
-	return
-}
-
-// GetRefreshCookie 获取refreshCookie
-func GetRefreshCookie(ctx g.Ctx) (refreshCookie string) {
-	sessionVar := SessionCache.MustGet(ctx, "session")
-	refreshCookie = gjson.New(sessionVar).Get("refreshCookie").String()
-	return
-}
-
-// GetAccessToken 获取accessToken
-func GetAccessToken(ctx g.Ctx) (accessToken string) {
-	sessionVar := SessionCache.MustGet(ctx, "session")
-	accessToken = gjson.New(sessionVar).Get("accessToken").String()
-	return
+	g.Log().Info(ctx, "COOKIE:", Cookie)
 }
