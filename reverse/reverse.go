@@ -1,11 +1,14 @@
 package reverse
 
 import (
+	"bytes"
+	"compress/gzip"
 	"io/ioutil"
 	"reverse/config"
 	"reverse/utils"
 	"strings"
 
+	"github.com/andybalholm/brotli"
 	http "github.com/bogdanfinn/fhttp"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
@@ -86,11 +89,39 @@ func Index(r *ghttp.Request) {
 	}
 	defer resp.Body.Close()
 
+	// 读取响应体
 	bodyBytes, _ := ioutil.ReadAll(resp.Body)
+
+	// 检查是否需要解压缩
+	contentEncoding := resp.Header.Get("Content-Encoding")
+
+	if contentEncoding == "gzip" {
+		gzReader, err := gzip.NewReader(bytes.NewReader(bodyBytes))
+		if err == nil {
+			defer gzReader.Close()
+			decompressed, err := ioutil.ReadAll(gzReader)
+			if err == nil {
+				bodyBytes = decompressed
+			}
+		}
+	} else if contentEncoding == "br" {
+		brReader := brotli.NewReader(bytes.NewReader(bodyBytes))
+		decompressed, err := ioutil.ReadAll(brReader)
+		if err == nil {
+			bodyBytes = decompressed
+		}
+	}
+
 	// 替换外部URL
 	content := utils.Replace(ctx, string(bodyBytes), scheme, host)
+
+	// 复制响应头
 	for k, v := range resp.Header {
 		if len(v) > 0 {
+			// 跳过 Content-Encoding 和 Content-Length，因为内容已被修改
+			if k == "Content-Encoding" || k == "Content-Length" {
+				continue
+			}
 			r.Response.Header().Set(k, v[0])
 		}
 	}

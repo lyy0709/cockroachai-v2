@@ -20,12 +20,13 @@ var DOMAIN_LIST = []string{
 	"accounts.google.com",                    // 19
 	"gemini.google.com",                      // 18
 	"fonts.gstatic.com",                      // 18
-	"play.google.com",                        // 16 新增
+	"play.google.com",                        // 16
 	"www.google.co.uk",                       // 16
 	"www.gstatic.com",                        // 16
 	"apis.google.com",                        // 15
 	"lh3.google.com",                         // 14
 	"www.google.com",                         // 14
+	"ogs.google.com",                         // 14 新增
 }
 
 // ExtractDomainFromURL 从完整URL中提取域名

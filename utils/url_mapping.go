@@ -75,6 +75,10 @@ var URL_PATH_DOMAIN_MAP = map[string]string{
 
 	// play.google.com 的路径
 	"/log": "play.google.com",
+
+	// ogs.google.com 的路径
+	"/u/":      "ogs.google.com",
+	"/widget/": "ogs.google.com",
 }
 
 // GetDomainFromPath 根据路径获取对应的域名

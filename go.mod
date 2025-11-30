@@ -6,6 +6,7 @@ toolchain go1.23.6
 
 require (
 	github.com/EDDYCJY/fake-useragent v0.2.0
+	github.com/andybalholm/brotli v1.2.0
 	github.com/bogdanfinn/fhttp v0.5.36
 	github.com/bogdanfinn/tls-client v1.9.1
 	github.com/gogf/gf/v2 v2.9.0
@@ -15,7 +16,6 @@ require (
 require (
 	github.com/BurntSushi/toml v1.4.0 // indirect
 	github.com/PuerkitoBio/goquery v1.10.3 // indirect
-	github.com/andybalholm/brotli v1.2.0 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/bogdanfinn/utls v1.6.5 // indirect
 	github.com/clbanning/mxj/v2 v2.7.0 // indirect

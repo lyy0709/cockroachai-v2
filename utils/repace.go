@@ -20,7 +20,8 @@ func Replace(ctx gctx.Ctx, content string, scheme string, host string) string {
 
 		// 1. 匹配带协议的完整URL：https?://domain[/path][?query]
 		// 使用更精确的正则，分别捕获路径和查询参数
-		pattern1 := regexp.MustCompile(`(https?://)` + escapedDomain + `(/[^\s"'<>?]*)?(\?[^\s"'<>]*)?`)
+		// 注意：路径部分可能以多个 / 开头（如 //path），需要处理
+		pattern1 := regexp.MustCompile(`(https?://)` + escapedDomain + `(/*[^\s"'<>?]*)?(\?[^\s"'<>]*)?`)
 		result = pattern1.ReplaceAllStringFunc(result, func(match string) string {
 			// 检查是否已经被替换过
 			if strings.Contains(match, host) {
@@ -31,24 +32,23 @@ func Replace(ctx gctx.Ctx, content string, scheme string, host string) string {
 			pathPart := strings.TrimPrefix(match, "https://"+domain)
 			pathPart = strings.TrimPrefix(pathPart, "http://"+domain)
 
-			// 如果为空，设置为 /
+			// 移除所有开头的斜杠，然后统一添加一个
+			pathPart = strings.TrimLeft(pathPart, "/")
+			// 如果为空或以 ? 开头，添加 /
 			if pathPart == "" {
 				pathPart = "/"
-			}
-			// 如果以 ? 开头，添加 /
-			if strings.HasPrefix(pathPart, "?") {
+			} else if strings.HasPrefix(pathPart, "?") {
 				pathPart = "/" + pathPart
-			}
-			// 确保只有一个开头的 /
-			if strings.HasPrefix(pathPart, "//") {
-				pathPart = strings.TrimPrefix(pathPart, "/")
+			} else {
+				pathPart = "/" + pathPart
 			}
 
 			return scheme + "://" + host + pathPart
 		})
 
 		// 2. 匹配协议相对URL：//domain/path（常见于HTML/JS中）
-		pattern1b := regexp.MustCompile(`(//)` + escapedDomain + `(/[^\s"'<>?]*)?(\?[^\s"'<>]*)?`)
+		// 注意：路径部分可能以多个 / 开头，需要处理
+		pattern1b := regexp.MustCompile(`(//)` + escapedDomain + `(/*[^\s"'<>?]*)?(\?[^\s"'<>]*)?`)
 		result = pattern1b.ReplaceAllStringFunc(result, func(match string) string {
 			// 检查是否已经被替换过
 			if strings.Contains(match, host) {
@@ -57,21 +57,24 @@ func Replace(ctx gctx.Ctx, content string, scheme string, host string) string {
 			// 提取路径部分
 			pathPart := strings.TrimPrefix(match, "//"+domain)
 
+			// 移除所有开头的斜杠，然后统一添加一个
+			pathPart = strings.TrimLeft(pathPart, "/")
 			if pathPart == "" {
 				pathPart = "/"
-			}
-			if strings.HasPrefix(pathPart, "?") {
+			} else if strings.HasPrefix(pathPart, "?") {
 				pathPart = "/" + pathPart
-			}
-			if strings.HasPrefix(pathPart, "//") {
-				pathPart = strings.TrimPrefix(pathPart, "/")
+			} else {
+				pathPart = "/" + pathPart
 			}
 
 			return "//" + host + pathPart
 		})
 
 		// 3. 匹配不带协议的相对URL（如在JS或CSS中）
-		pattern2 := regexp.MustCompile(`(["\s=:])` + escapedDomain + `(/[^\s"'<>?]*)?(\?[^\s"'<>]*)?`)
+		// 注意：这种情况下域名可能是作为字符串变量使用，后续会拼接路径
+		// 例如：lg(3) + "/gtag/js"，其中 lg(3) 返回域名
+		// 所以当路径为空时，不应该添加 /，否则会导致双斜杠
+		pattern2 := regexp.MustCompile(`(["\s=:])` + escapedDomain + `(/*[^\s"'<>?]*)?(\?[^\s"'<>]*)?`)
 		result = pattern2.ReplaceAllStringFunc(result, func(match string) string {
 			// 获取前缀字符（引号、空格等）
 			prefix := match[:1]
@@ -85,14 +88,17 @@ func Replace(ctx gctx.Ctx, content string, scheme string, host string) string {
 			// 提取路径部分
 			pathPart := strings.TrimPrefix(restMatch, domain)
 
-			if pathPart == "" {
-				pathPart = "/"
-			}
-			if strings.HasPrefix(pathPart, "?") {
-				pathPart = "/" + pathPart
-			}
-			if strings.HasPrefix(pathPart, "//") {
-				pathPart = strings.TrimPrefix(pathPart, "/")
+			// 移除所有开头的斜杠
+			pathPart = strings.TrimLeft(pathPart, "/")
+
+			// 如果路径不为空，添加一个开头的 /
+			// 如果路径为空，保持为空（不添加 /），因为后续 JS 可能会拼接以 / 开头的路径
+			if pathPart != "" {
+				if strings.HasPrefix(pathPart, "?") {
+					pathPart = "/?" + strings.TrimPrefix(pathPart, "?")
+				} else {
+					pathPart = "/" + pathPart
+				}
 			}
 
 			return prefix + host + pathPart
