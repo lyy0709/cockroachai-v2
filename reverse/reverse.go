@@ -20,6 +20,7 @@ func init() {
 
 	group.GET("/app", Index)
 	group.ALL("/*", Proxy)
+	group.GET("/RotateCookiesPage", RotateCookiesPage)
 }
 
 func Index(r *ghttp.Request) {
@@ -79,7 +80,8 @@ func Index(r *ghttp.Request) {
 
 	// 设置正确的Host和Cookie
 	req.Header.Set("Host", originalDomain)
-	req.Header.Set("Cookie", config.Cookie)
+	req.Header.Set("Cookie", config.GetCookie())
+	req.Header.Set("Accept-Encoding", "")
 	// 使用指纹客户端发送请求
 	resp, err := utils.TlsClient.Do(req)
 	if err != nil {
@@ -117,6 +119,13 @@ func Index(r *ghttp.Request) {
 
 	// 复制响应头
 	for k, v := range resp.Header {
+		// Set-Cookie 需要特殊处理，先添加所有值
+		if k == "Set-Cookie" {
+			for _, cookie := range v {
+				r.Response.Header().Add(k, cookie)
+			}
+			continue
+		}
 		if len(v) > 0 {
 			// 跳过 Content-Encoding 和 Content-Length，因为内容已被修改
 			if k == "Content-Encoding" || k == "Content-Length" {
@@ -126,6 +135,28 @@ func Index(r *ghttp.Request) {
 		}
 	}
 	header := r.Response.Header()
+	// 修复 Set-Cookie 头的 Domain 属性
+	utils.FixSetCookieHeaders(&header, host)
 	utils.HeaderModify(&header)
+	r.Response.Status = resp.StatusCode
 	r.Response.Write(content)
+}
+
+
+// RotateCookiesPage 处理 Cookie 刷新请求
+func RotateCookiesPage(r *ghttp.Request) {
+	ctx := r.Context()
+
+	// 调用 Cookie 刷新
+	err := config.RefreshCookie()
+	if err != nil {
+		g.Log().Error(ctx, "Cookie 刷新失败:", err)
+		r.Response.WriteJsonExit(g.Map{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	r.Response.Write("{}")
 }

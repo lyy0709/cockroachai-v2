@@ -1,28 +1,234 @@
 package config
 
 import (
+	"context"
+	"sync"
+
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/os/gctx"
 )
+
+// CookieChangeCallback Cookie 变更回调函数类型
+type CookieChangeCallback func()
 
 var (
 	PORT     = 8080 // 端口
 	BaseUrl  = "https://gemini.google.com"
 	ProxyURL = ""
-	Cookie   = "SEARCH_SAMESITE=CgQI4J4B; HSID=As8nIF2hxV-f-aihC; SSID=AR_-VmvR_rCgdGDTn; APISID=Bu0N58TYCzTumLdL/A88hD8SwRz6pJddNU; SAPISID=g0QSuX0gTVfYivvW/AuHIzYfk_Wd4wnp8B; __Secure-1PAPISID=g0QSuX0gTVfYivvW/AuHIzYfk_Wd4wnp8B; __Secure-3PAPISID=g0QSuX0gTVfYivvW/AuHIzYfk_Wd4wnp8B; _gcl_au=1.1.765220742.1762925947; _ga=GA1.1.1794299751.1762925947; SID=g.a0003wjzqDcErsvgoQBdaiE7uenQxJQwnYIp_EzFFAD4C7Kks-CqVLss6brJzDKIfgbj5zdU8AACgYKATMSARISFQHGX2Mid_sZRcsR87co8zTosoz-1xoVAUF8yKqzpsmTReO6XZIZy5h5iLEs0076; __Secure-1PSID=g.a0003wjzqDcErsvgoQBdaiE7uenQxJQwnYIp_EzFFAD4C7Kks-CqCNL06IR7fUJwxoSfzR0EcwACgYKAbYSARISFQHGX2MiljcEacKy-l-OGdN8M0t6PBoVAUF8yKplkIY7R9BQdksmrBOKHZF-0076; __Secure-3PSID=g.a0003wjzqDcErsvgoQBdaiE7uenQxJQwnYIp_EzFFAD4C7Kks-CqTBlJdzp4Og3-Cf88xM_CDgACgYKAYoSARISFQHGX2MieFWSmP8hwVojxfCRqpH7XRoVAUF8yKoFSXfemwMVfPKl2yP7LyFv0076; AEC=AaJma5vVZKmCsFRyVYclvXltfBECZgw7bHBB41WpBp-LLiGW28ZHiU_aSIM; S=billing-ui-v3=HP0NxIvBcTnAqIy0U8qffiYkXau42Lyh:billing-ui-v3-efe=HP0NxIvBcTnAqIy0U8qffiYkXau42Lyh; __Secure-ENID=29.SE=E7ipcH13Fmx5LxWJE_qQe17zPc0Sf8iEh1E_qqPhzvYMNB5wqB0tBd54czWUxI0apr9RJ90wLc4QHvW5jhZMFqpnmwKe_bnFL5H98NmCwxyM0_3WiJv38lSMOrFeuokH_PwwnWTvScWOEOBtq09SQJpHXGXZYsBt4U2qmVovnQT8YxLRTxASP4d1HKyPZ_SUIILzE4iXsePOJuHn99gF5uY2kRadRSGcJ0QjWUgjCFrEm_Hm8wP0AYiAS2Inf2iGVt49hwwiu7wgweope9NnqL5xu_iq_NTzkd3bc4fDNXqRL-GYt1hK6XcN6YeZJRJyJVIE4TboIrCTOkP8JxJM-li8W361Db3w7jheOTBO8wBhHvJFiK65HKmGro0P_w; NID=526=TX-zcXDgmg8v24-Hlr6TSb89PWhEknmA4DbNRtYHjKuubv1qkK0SeUpSBalyIqjNUxMA-s2ng0OAGAb3ATrrc4way6QFMiK4N4XVb27ADQKxDxzoV-2M5IFoDcLKcnLfdh5HZnfge3i4MH-LHYmWoxuSTkRYmudN6eq6kc_1RtxUEYBXkCcbI7bi5OtwfZuIOvs1pJAG7JFf9rzNeODFvaIBKrmFz_ywMBUiUG0J1AWmZhleKf2zEJj9m6-dVOBUVGLd6ChL35dfGLU1SpYc5X3rZZCF0AFIEqIaMSVIufYNZsFejqld_5HT-BV-JhKXMzdyirl-kxXvZCuf1yIsF4_VxHr-yr2vW0Yac7C0PXZ8q940qQJAmSN2kp_wtWyCymVKDtZzsjwTj-97Gz13vpB06I0iVKkbXQMBrJeFfXe3h8OXHCBn5-HyNjTsD69HjiAR6Wju8HSSQeGfTAPvh4ei-pCWwHiq9SfgcMIKwNSeHeD3-3_nY51OPTiG7NC-IKJq6vl5ZtwOy7rM0Z-9c9DjgH-EV69y2MQ_Rz3T64i0mdHaiDeFHVjnPSqCrgg2Bekmj3fUKmrDSQkvRoB_0-kKBrUgOCtbAujKoz7M5JTbIGYc7jzLrGWNARs7Y3zJKEJph6qaBLJSpZrJJ-_ruBlC4faEAp9ayTAvB7RzNt-SAF4PoCot5cBwAdiy_EzBInOLuhwnc8wSNYDGx9sCZ2AEspR3rduFxCHqsi-yMKadueIVsBuTwsv0hBF2eZdxX5lFTaRX667UiP0MLjUEWEtJ8qYt3O__0A3LOB7mN-ucn0Zjpxi43DchvhOAdy1MbpdmbCUvcJhijDJ_qoqzEDzxRuA8edWP8AW9HINniLUbIcjLprAvl5NuvuEdreZa-FPYoq6sPL-2GFe7agtvLVBiGy51ySHUO6XZMucj2TemTa8--Fc5dovJ62jct6P1IW3TqeF0O_-t54L3rnnrLSXt2J8PAG78RXupwZUv52IgsDvV6pqP1DxHVAFT7z3v7UdykVMyplV7JJaZza7ugzWagEkcWwVi3IO34FbpJSHAgCrMOiq_BCG72-yXjDj4-2ZkJEjnEoU9QzkoA33WlXIaDM6tZwbGh9ZpRDyhylbS6RrWkuWctSzQjKCX3-eMLBOUolAMbR_SKME70yOpiQ; GOOGLE_ABUSE_EXEMPTION=ID=006d3c2b1823ce75:TM=1764421668:C=>:IP=66.93.5.43-:S=btq6JDJn_ij2ZCcuJV7QXA; _ga_WC57KJ50ZZ=GS2.1.s1764421670$o21$g1$t1764421672$j58$l0$h0; _ga_BF8Q35BMLM=GS2.1.s1764421673$o16$g0$t1764421673$j60$l0$h0; __Secure-1PSIDTS=sidts-CjIBwQ9iI238DljL9mKtKFCKz3UfKLnCCom5LT2lEaH1kuU8XMdrl-RSNpTYXpbmdYH0gBAA; __Secure-3PSIDTS=sidts-CjIBwQ9iI238DljL9mKtKFCKz3UfKLnCCom5LT2lEaH1kuU8XMdrl-RSNpTYXpbmdYH0gBAA; SIDCC=AKEyXzU2a7M4JvgqVTiv5TB9EdAPfPpT_T5wZue5OT2QT5QDlNxKRaLWL7BRHSIRs7PZoXlZ4A; __Secure-1PSIDCC=AKEyXzXGrN5nVEYUAWnRv5BaTeboggJ-cVgKx0Cmoof2Wnvw2JyiMNNdjcbt1EM4w_SLqebIYQ; __Secure-3PSIDCC=AKEyXzVKLdJZqEpLKGiy_OFlLlw6XrrKOg5usFOKhwjMkyb5K7A0Y_xXGg_I3zY9_ZF0chbtng"
+
+	// 简化的 Cookie 配置 - 只需要这两个关键 cookie
+	Secure1PSID   = "g.a0004Ai4FVxM_tmi4lo8kkC9ugb5CPJaRER38kV_RKy-j30YIJAxQb92SQX8r0AwTWr7WzMUNAACgYKAUISARISFQHGX2MiZzMJiKD6f8n-qU2i3w4SABoVAUF8yKr_lRzKjcHc7ocIgmh1tX-X0076"
+	Secure1PSIDTS = "sidts-CjIBwQ9iI0eXHKgjhatzlxx1KeA3AX4fZhWHuPjrTOsqREDbxRtxU9JwTSsFHfOpBib2gBAA"
+
+	// Cookie 字符串 (由 CookieManager 生成)
+	Cookie = ""
+
+	// Cookie 管理器实例
+	CookieMgr *CookieManager
+
+	// Cookie 缓存目录
+	CookieCacheDir = "./cookies"
+
+	// 是否启用详细日志
+	Verbose = true
+
+	// Cookie 锁,用于并发安全
+	cookieMutex sync.RWMutex
+
+	// Cookie 变更回调列表
+	cookieChangeCallbacks []CookieChangeCallback
+	callbackMutex         sync.RWMutex
 )
 
 func init() {
 	ctx := gctx.GetInitCtx()
+
 	// 读取端口
 	port := g.Cfg().MustGetWithEnv(ctx, "PORT").Int()
 	if port > 0 {
 		PORT = port
 	}
 	g.Log().Info(ctx, "PORT:", PORT)
-	cookie := g.Cfg().MustGetWithEnv(ctx, "COOKIE").String()
-	if cookie != "" {
-		Cookie = cookie
+
+	// 读取缓存目录
+	cacheDir := g.Cfg().MustGetWithEnv(ctx, "COOKIE_CACHE_DIR").String()
+	if cacheDir != "" {
+		CookieCacheDir = cacheDir
 	}
-	g.Log().Info(ctx, "COOKIE:", Cookie)
+
+	// 读取代理 URL
+	proxyURL := g.Cfg().MustGetWithEnv(ctx, "PROXY_URL").String()
+	if proxyURL != "" {
+		ProxyURL = proxyURL
+	}
+
+	// 读取详细日志开关
+	verbose := g.Cfg().MustGetWithEnv(ctx, "VERBOSE").Bool()
+	Verbose = verbose
+
+	// 初始化 Cookie 存储 (默认使用文件存储)
+	cookieConfigPath := g.Cfg().MustGetWithEnv(ctx, "COOKIE_CONFIG_PATH").String()
+	if cookieConfigPath == "" {
+		cookieConfigPath = "./cookies/cookie_config.json"
+	}
+	InitCookieStorage(NewFileCookieStorage(cookieConfigPath))
+
+	// 尝试从存储加载 Cookie
+	if err := LoadCookieFromStorage(ctx); err != nil {
+		g.Log().Debug(ctx, "从存储加载 Cookie 失败:", err)
+	}
+
+	// 如果存储中没有,从环境变量/配置文件读取
+	psid := g.Cfg().MustGetWithEnv(ctx, "SECURE_1PSID").String()
+	if psid != "" {
+		Secure1PSID = psid
+	}
+
+	psidts := g.Cfg().MustGetWithEnv(ctx, "SECURE_1PSIDTS").String()
+	if psidts != "" {
+		Secure1PSIDTS = psidts
+	}
+
+	// 初始化 Cookie 管理器
+	CookieMgr = NewCookieManager(Secure1PSID, Secure1PSIDTS, CookieCacheDir, ProxyURL, Verbose)
+
+	// 尝试获取有效的 Cookie
+	if Secure1PSID != "" {
+		accessToken, cookieStr, err := CookieMgr.GetAccessToken(ctx)
+		if err != nil {
+			g.Log().Warning(ctx, "初始化 Cookie 失败:", err)
+			// 如果有 PSID 和 PSIDTS,构建基本的 cookie 字符串
+			if Secure1PSID != "" && Secure1PSIDTS != "" {
+				Cookie = "__Secure-1PSID=" + Secure1PSID + "; __Secure-1PSIDTS=" + Secure1PSIDTS
+				g.Log().Info(ctx, "使用基本 Cookie 配置")
+			}
+		} else {
+			Cookie = cookieStr
+			g.Log().Info(ctx, "Cookie 初始化成功, AccessToken:", accessToken[:20]+"...")
+		}
+	} else {
+		g.Log().Warning(ctx, "未配置 SECURE_1PSID,请设置环境变量或配置文件")
+	}
+
+	g.Log().Info(ctx, "Cookie 配置完成")
+}
+
+// GetCookie 获取当前 Cookie (线程安全)
+func GetCookie() string {
+	cookieMutex.RLock()
+	defer cookieMutex.RUnlock()
+	return Cookie
+}
+
+// SetCookie 设置 Cookie (线程安全)
+func SetCookie(cookie string) {
+	cookieMutex.Lock()
+	defer cookieMutex.Unlock()
+	Cookie = cookie
+}
+
+// RefreshCookie 刷新 Cookie
+func RefreshCookie() error {
+	ctx := gctx.GetInitCtx()
+
+	cookies := map[string]string{
+		"__Secure-1PSID":   Secure1PSID,
+		"__Secure-1PSIDTS": Secure1PSIDTS,
+	}
+
+	newPSIDTS, err := CookieMgr.RotateCookies(ctx, cookies)
+	if err != nil {
+		return err
+	}
+
+	// 更新 PSIDTS
+	cookieMutex.Lock()
+	Secure1PSIDTS = newPSIDTS
+	cookieMutex.Unlock()
+
+	// 重新获取完整的 Cookie
+	_, cookieStr, err := CookieMgr.GetAccessToken(ctx)
+	if err != nil {
+		// 如果获取失败,使用基本的 cookie
+		SetCookie("__Secure-1PSID=" + Secure1PSID + "; __Secure-1PSIDTS=" + Secure1PSIDTS)
+	} else {
+		SetCookie(cookieStr)
+	}
+
+	// 保存到存储 (文件或数据库)
+	if err := SaveCookieToStorage(ctx); err != nil {
+		g.Log().Warning(ctx, "保存 Cookie 到存储失败:", err)
+	}
+
+	g.Log().Info(ctx, "Cookie 刷新成功")
+	return nil
+}
+
+// UpdateSecure1PSID 更新 Secure1PSID 并保存
+func UpdateSecure1PSID(ctx context.Context, psid string) error {
+	cookieMutex.Lock()
+	Secure1PSID = psid
+	cookieMutex.Unlock()
+
+	// 更新 CookieManager
+	CookieMgr.Secure1PSID = psid
+
+	// 触发 Cookie 变更回调
+	triggerCookieChangeCallbacks()
+
+	// 保存到存储
+	return SaveCookieToStorage(ctx)
+}
+
+// UpdateSecure1PSIDTS 更新 Secure1PSIDTS 并保存
+func UpdateSecure1PSIDTS(ctx context.Context, psidts string) error {
+	cookieMutex.Lock()
+	Secure1PSIDTS = psidts
+	cookieMutex.Unlock()
+
+	// 更新 CookieManager
+	CookieMgr.Secure1PSIDTS = psidts
+
+	// 触发 Cookie 变更回调
+	triggerCookieChangeCallbacks()
+
+	// 保存到存储
+	return SaveCookieToStorage(ctx)
+}
+
+// UpdateCookies 同时更新 PSID 和 PSIDTS 并保存
+func UpdateCookies(ctx context.Context, psid, psidts string) error {
+	cookieMutex.Lock()
+	Secure1PSID = psid
+	Secure1PSIDTS = psidts
+	cookieMutex.Unlock()
+
+	// 更新 CookieManager
+	CookieMgr.Secure1PSID = psid
+	CookieMgr.Secure1PSIDTS = psidts
+
+	// 重新构建 Cookie 字符串
+	Cookie = "__Secure-1PSID=" + psid + "; __Secure-1PSIDTS=" + psidts
+
+	// 触发 Cookie 变更回调
+	triggerCookieChangeCallbacks()
+
+	// 保存到存储
+	return SaveCookieToStorage(ctx)
+}
+
+// RegisterCookieChangeCallback 注册 Cookie 变更回调
+func RegisterCookieChangeCallback(callback CookieChangeCallback) {
+	callbackMutex.Lock()
+	defer callbackMutex.Unlock()
+	cookieChangeCallbacks = append(cookieChangeCallbacks, callback)
+}
+
+// triggerCookieChangeCallbacks 触发所有 Cookie 变更回调
+func triggerCookieChangeCallbacks() {
+	callbackMutex.RLock()
+	defer callbackMutex.RUnlock()
+	for _, callback := range cookieChangeCallbacks {
+		go callback() // 异步执行回调
+	}
 }

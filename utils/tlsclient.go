@@ -3,6 +3,7 @@ package utils
 import (
 	"net/url"
 	"reverse/config"
+	"strings"
 
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/os/gctx"
@@ -14,7 +15,11 @@ import (
 
 // 全局变量
 var (
+	// TlsClient HTTP/2 客户端,用于正常请求
 	TlsClient http_client.HttpClient
+
+	// TlsClientHttp1 HTTP/1.1 客户端,用于 batchexecute 和 StreamGenerate 请求
+	TlsClientHttp1 http_client.HttpClient
 
 	DEFAULT_HEADERS = map[string]string{
 		"Connection": "keep-alive",
@@ -28,29 +33,62 @@ func init() {
 	ctx := gctx.GetInitCtx()
 	var err error
 
-	// 创建客户端选项列表
-	options := []http_client.HttpClientOption{
-		http_client.WithTimeoutSeconds(0),
+	// ========== HTTP/2 客户端 (用于正常请求) ==========
+	http2Options := []http_client.HttpClientOption{
+		http_client.WithTimeoutSeconds(60),
 		http_client.WithClientProfile(profiles.Safari_IOS_18_0),
-		http_client.WithRandomTLSExtensionOrder(), // 随机TLS扩展顺序
-		http_client.WithInsecureSkipVerify(),      // 根据需要可以移除此选项
+		http_client.WithRandomTLSExtensionOrder(),
+		http_client.WithInsecureSkipVerify(),
 	}
 
 	// 如果配置中有代理URL，则添加代理设置
 	if config.ProxyURL != "" {
 		proxyURL, parseErr := url.Parse(config.ProxyURL)
 		if parseErr == nil {
-			options = append(options, http_client.WithProxyUrl(proxyURL.String()))
-			g.Log().Info(ctx, "使用代理", config.ProxyURL)
+			http2Options = append(http2Options, http_client.WithProxyUrl(proxyURL.String()))
+			g.Log().Info(ctx, "HTTP/2 客户端使用代理", config.ProxyURL)
 		} else {
 			g.Log().Error(ctx, "解析代理URL失败", parseErr)
 		}
 	}
 
-	// 创建一个模拟Chrome浏览器的TLS指纹客户端
-	TlsClient, err = http_client.NewHttpClient(http_client.NewNoopLogger(), options...)
-
+	TlsClient, err = http_client.NewHttpClient(http_client.NewNoopLogger(), http2Options...)
 	if err != nil {
-		g.Log().Error(ctx, "创建TLS客户端失败", err)
+		g.Log().Error(ctx, "创建 HTTP/2 TLS客户端失败", err)
 	}
+	g.Log().Info(ctx, "HTTP/2 TLS客户端初始化完成")
+
+	// ========== HTTP/1.1 客户端 (用于 batchexecute/StreamGenerate) ==========
+	http1Options := []http_client.HttpClientOption{
+		http_client.WithTimeoutSeconds(120),                 // 更长的超时时间
+		http_client.WithClientProfile(profiles.Safari_IOS_18_0),
+		http_client.WithRandomTLSExtensionOrder(),
+		http_client.WithInsecureSkipVerify(),
+		http_client.WithForceHttp1(),                        // 强制 HTTP/1.1
+	}
+
+	// 如果配置中有代理URL，则添加代理设置
+	if config.ProxyURL != "" {
+		proxyURL, parseErr := url.Parse(config.ProxyURL)
+		if parseErr == nil {
+			http1Options = append(http1Options, http_client.WithProxyUrl(proxyURL.String()))
+			g.Log().Info(ctx, "HTTP/1.1 客户端使用代理", config.ProxyURL)
+		}
+	}
+
+	TlsClientHttp1, err = http_client.NewHttpClient(http_client.NewNoopLogger(), http1Options...)
+	if err != nil {
+		g.Log().Error(ctx, "创建 HTTP/1.1 TLS客户端失败", err)
+	}
+	g.Log().Info(ctx, "HTTP/1.1 TLS客户端初始化完成")
+}
+
+// GetClientForPath 根据请求路径选择合适的客户端
+func GetClientForPath(path string) http_client.HttpClient {
+	// batchexecute 和 StreamGenerate 使用 HTTP/1.1 客户端
+	if strings.Contains(path, "batchexecute") || strings.Contains(path, "StreamGenerate") {
+		return TlsClientHttp1
+	}
+	// 其他请求使用 HTTP/2 客户端
+	return TlsClient
 }

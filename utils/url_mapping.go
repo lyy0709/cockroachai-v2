@@ -20,14 +20,15 @@ var URL_PATH_DOMAIN_MAP = map[string]string{
 	"/RotateCookies":     "accounts.google.com",
 
 	// www.gstatic.com 的路径
-	"/_/mss/boq-bard-web": "www.gstatic.com",
-	"/_/mss/boq-identity": "www.gstatic.com",
-	"/_/boq-bard-web":     "www.gstatic.com",
-	"/og/_/js":            "www.gstatic.com",
-	"/og/_/ss":            "www.gstatic.com",
-	"/feedback/js":        "www.gstatic.com",
-	"/lamda/images":       "www.gstatic.com",
-	"/images/branding":    "www.gstatic.com",
+	"/_/mss/boq-bard-web":   "www.gstatic.com",
+	"/_/mss/boq-identity":   "www.gstatic.com",
+	"/_/mss/boq-one-google": "www.gstatic.com",
+	"/_/boq-bard-web":       "www.gstatic.com",
+	"/og/_/js":              "www.gstatic.com",
+	"/og/_/ss":              "www.gstatic.com",
+	"/feedback/js":          "www.gstatic.com",
+	"/lamda/images":         "www.gstatic.com",
+	"/images/branding":      "www.gstatic.com",
 
 	// fonts.gstatic.com 的路径
 	"/icon/font": "fonts.gstatic.com",
@@ -68,6 +69,7 @@ var URL_PATH_DOMAIN_MAP = map[string]string{
 	"/ogw/":  "lh3.googleusercontent.com",
 	"/a/":    "lh3.googleusercontent.com",
 	"/gg/":   "lh3.googleusercontent.com",
+	"/gg-dl/": "lh3.googleusercontent.com",
 	"/rd-gg": "lh3.google.com",
 
 	// drive-thirdparty.googleusercontent.com 的路径
@@ -79,6 +81,9 @@ var URL_PATH_DOMAIN_MAP = map[string]string{
 	// ogs.google.com 的路径
 	"/u/":      "ogs.google.com",
 	"/widget/": "ogs.google.com",
+
+	// contribution.usercontent.google.com 的路径
+	"/download": "contribution.usercontent.google.com",
 }
 
 // GetDomainFromPath 根据路径获取对应的域名

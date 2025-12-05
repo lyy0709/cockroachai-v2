@@ -9,6 +9,7 @@ import (
 // DOMAIN_LIST 从实际URL中提取的所有唯一域名，按长度降序排列（避免包含关系导致的错误匹配）
 var DOMAIN_LIST = []string{
 	"drive-thirdparty.googleusercontent.com", // 38
+	"contribution.usercontent.google.com",    // 36
 	"signaler-pa.clients6.google.com",        // 32
 	"region1.google-analytics.com",           // 29
 	"region1.analytics.google.com",           // 29
