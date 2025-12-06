@@ -93,12 +93,18 @@ func HeaderModify(headers *http.Header) {
 	headers.Del("Cross-Origin-Embedder-Policy")
 	headers.Del("Cross-Origin-Resource-Policy")
 	headers.Del("Permissions-Policy")
+	headers.Del("access-control-allow-headers")
+	headers.Del("access-control-allow-credentials")
 
 	// 删除可能导致内容长度不匹配的头部
 	// 注意：不再删除 Set-Cookie，让浏览器可以接收 cookies
 	headers.Del("report-to")
 	headers.Del("Content-Encoding")
 	headers.Del("Content-Length")
+
+	// 删除上游下发的 Set-Cookie，避免透传
+	headers.Del("Set-Cookie")
+	headers.Del("www-authenticate")
 
 	// 一些奇怪的东西
 	headers.Del("x-middleware-prefetch")

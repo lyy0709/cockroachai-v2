@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
+
+	http "github.com/bogdanfinn/fhttp"
+
+	"reverse/utils"
 
 	"github.com/gogf/gf/v2/frame/g"
 )
@@ -105,34 +108,35 @@ func (cm *CookieManager) GetSessionInfo(ctx context.Context) (*SessionInfo, erro
 	return nil, fmt.Errorf("所有 cookie 来源验证失败 (共尝试 %d 个来源)", len(cookieSources))
 }
 
-// getExtraCookies 从 google.com 获取额外的 cookies
+// getExtraCookies 从 google.com 获取额外的 cookies（包括 SAPISID）
 func (cm *CookieManager) getExtraCookies(ctx context.Context) (map[string]string, error) {
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return nil // 允许重定向
-		},
-	}
-
 	req, err := http.NewRequestWithContext(ctx, "GET", "https://google.com", nil)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := client.Do(req)
+	// 设置必要的请求头，模拟浏览器
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+
+	resp, err := utils.TlsClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	extraCookies := make(map[string]string)
-	if resp.StatusCode == 200 {
+	if resp.StatusCode == http.StatusOK {
 		for _, cookie := range resp.Cookies() {
 			extraCookies[cookie.Name] = cookie.Value
+			if cm.Verbose && (cookie.Name == "SAPISID" || cookie.Name == "__Secure-3PAPISID") {
+				g.Log().Infof(ctx, "✓ 从 google.com 获取到 %s", cookie.Name)
+			}
 		}
 		if cm.Verbose && len(extraCookies) > 0 {
 			g.Log().Debugf(ctx, "从 google.com 获取到 %d 个额外 cookies", len(extraCookies))
 		}
+	} else if cm.Verbose {
+		g.Log().Debugf(ctx, "获取 google.com 额外 cookies 失败，状态码: %d", resp.StatusCode)
 	}
 
 	return extraCookies, nil
@@ -266,17 +270,11 @@ type SessionInfo struct {
 // validateCookies 验证 cookies 是否有效
 // 返回: SessionInfo, error
 func (cm *CookieManager) validateCookies(ctx context.Context, cookies map[string]string) (*SessionInfo, error) {
-	client := &http.Client{
-		Timeout: 15 * time.Second,
-	}
-
 	req, err := http.NewRequestWithContext(ctx, "GET", "https://gemini.google.com", nil)
 	if err != nil {
 		return nil, err
 	}
 
-	// 设置请求头
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 
@@ -288,11 +286,22 @@ func (cm *CookieManager) validateCookies(ctx context.Context, cookies map[string
 	cookieStr := strings.Join(cookieParts, "; ")
 	req.Header.Set("Cookie", cookieStr)
 
-	resp, err := client.Do(req)
+	resp, err := utils.TlsClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	// 关键修复：从响应的 Set-Cookie 中提取服务器返回的额外 cookies（包括 SAPISID）
+	responseCookies := resp.Cookies()
+	g.Log().Debug(ctx, "responseCookies", responseCookies)
+	for _, cookie := range responseCookies {
+		// 将响应中的 cookies 合并到现有 cookies 中
+		cookies[cookie.Name] = cookie.Value
+		if cm.Verbose && (cookie.Name == "SAPISID" || cookie.Name == "__Secure-3PAPISID") {
+			g.Log().Infof(ctx, "✓ 从 gemini.google.com 响应中获取到 %s", cookie.Name)
+		}
+	}
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
@@ -319,10 +328,17 @@ func (cm *CookieManager) validateCookies(ctx context.Context, cookies map[string
 		}
 	}
 
+	// 重新构建完整的 cookie 字符串（包含响应中的新 cookies）
+	var finalCookieParts []string
+	for k, v := range cookies {
+		finalCookieParts = append(finalCookieParts, fmt.Sprintf("%s=%s", k, v))
+	}
+	finalCookieStr := strings.Join(finalCookieParts, "; ")
+
 	return &SessionInfo{
 		AccessToken: tokenMatches[1],
 		SessionID:   sessionID,
-		CookieStr:   cookieStr,
+		CookieStr:   finalCookieStr,
 	}, nil
 }
 
@@ -352,10 +368,6 @@ func (cm *CookieManager) RotateCookies(ctx context.Context, cookies map[string]s
 	}
 
 	// 发送刷新请求
-	client := &http.Client{
-		Timeout: 15 * time.Second,
-	}
-
 	req, err := http.NewRequestWithContext(ctx, "POST", "https://accounts.google.com/RotateCookies",
 		strings.NewReader(`[000,"-0000000000000000000"]`))
 	if err != nil {
@@ -373,7 +385,7 @@ func (cm *CookieManager) RotateCookies(ctx context.Context, cookies map[string]s
 	}
 	req.Header.Set("Cookie", strings.Join(cookieParts, "; "))
 
-	resp, err := client.Do(req)
+	resp, err := utils.TlsClient.Do(req)
 	if err != nil {
 		return "", err
 	}

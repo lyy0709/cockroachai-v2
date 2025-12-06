@@ -7,6 +7,8 @@ import (
 	"reverse/config"
 	"reverse/utils"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/andybalholm/brotli"
 	http "github.com/bogdanfinn/fhttp"
@@ -21,7 +23,13 @@ func init() {
 	group.GET("/app", Index)
 	group.ALL("/*", Proxy)
 	group.GET("/RotateCookiesPage", RotateCookiesPage)
+	group.GET("/RotateCookies", RotateCookiesPage)
 }
+
+var (
+	cookieRefreshMu   sync.Mutex
+	lastCookieRefresh time.Time
+)
 
 func Index(r *ghttp.Request) {
 	ctx := r.Context()
@@ -54,12 +62,16 @@ func Index(r *ghttp.Request) {
 		// 从Referer中提取路径
 		relativePath := strings.TrimPrefix(refer, scheme+"://"+host)
 
-		// 通过路径映射表确定 Referer 的域名
-		refererDomain = utils.GetDomainFromPath(relativePath)
+		// 使用新方案：从路径中提取域名和真实路径
+		// 路径格式：/gemini.google.com/app/chat
+		var realPath string
+		refererDomain, realPath = utils.ExtractDomainAndPathFromProxyPath(relativePath)
 
-		// 构建原始 Referer
-		newReferer := "https://" + refererDomain + relativePath
-		req.Header.Set("Referer", newReferer)
+		// 构建原始 Referer（使用提取的真实路径）
+		if refererDomain != "" {
+			newReferer := "https://" + refererDomain + realPath
+			req.Header.Set("Referer", newReferer)
+		}
 	}
 
 	// 确定要使用的 Origin 域名
@@ -115,17 +127,10 @@ func Index(r *ghttp.Request) {
 	}
 
 	// 替换外部URL
-	content := utils.Replace(ctx, string(bodyBytes), scheme, host)
+	content := utils.Replace(ctx, string(bodyBytes), scheme, host, originalDomain)
 
 	// 复制响应头
 	for k, v := range resp.Header {
-		// Set-Cookie 需要特殊处理，先添加所有值
-		if k == "Set-Cookie" {
-			for _, cookie := range v {
-				r.Response.Header().Add(k, cookie)
-			}
-			continue
-		}
 		if len(v) > 0 {
 			// 跳过 Content-Encoding 和 Content-Length，因为内容已被修改
 			if k == "Content-Encoding" || k == "Content-Length" {
@@ -135,28 +140,31 @@ func Index(r *ghttp.Request) {
 		}
 	}
 	header := r.Response.Header()
-	// 修复 Set-Cookie 头的 Domain 属性
-	utils.FixSetCookieHeaders(&header, host)
 	utils.HeaderModify(&header)
 	r.Response.Status = resp.StatusCode
 	r.Response.Write(content)
 }
 
-
 // RotateCookiesPage 处理 Cookie 刷新请求
 func RotateCookiesPage(r *ghttp.Request) {
 	ctx := r.Context()
 
-	// 调用 Cookie 刷新
-	err := config.RefreshCookie()
-	if err != nil {
-		g.Log().Error(ctx, "Cookie 刷新失败:", err)
-		r.Response.WriteJsonExit(g.Map{
-			"success": false,
-			"error":   err.Error(),
-		})
+	cookieRefreshMu.Lock()
+	defer cookieRefreshMu.Unlock()
+
+	// 若 1 小时内已刷新过，则直接返回，避免更换 Cookie 导致会话失效
+	if !lastCookieRefresh.IsZero() && time.Since(lastCookieRefresh) < time.Hour {
+		r.Response.WriteJsonExit("{}")
 		return
 	}
 
+	// 调用 Cookie 刷新
+	if err := config.RefreshCookie(); err != nil {
+		g.Log().Error(ctx, "Cookie 刷新失败:", err)
+		r.Response.WriteJsonExit("{}")
+		return
+	}
+
+	lastCookieRefresh = time.Now()
 	r.Response.Write("{}")
 }

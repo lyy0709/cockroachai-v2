@@ -2,7 +2,9 @@ package config
 
 import (
 	"context"
+	"fmt"
 	"sync"
+	"time"
 
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/os/gctx"
@@ -17,8 +19,8 @@ var (
 	ProxyURL = ""
 
 	// 简化的 Cookie 配置 - 只需要这两个关键 cookie
-	Secure1PSID   = "g.a0004Ai4FVxM_tmi4lo8kkC9ugb5CPJaRER38kV_RKy-j30YIJAxQb92SQX8r0AwTWr7WzMUNAACgYKAUISARISFQHGX2MiZzMJiKD6f8n-qU2i3w4SABoVAUF8yKr_lRzKjcHc7ocIgmh1tX-X0076"
-	Secure1PSIDTS = "sidts-CjIBwQ9iI0eXHKgjhatzlxx1KeA3AX4fZhWHuPjrTOsqREDbxRtxU9JwTSsFHfOpBib2gBAA"
+	Secure1PSID   = "g.a0004QjzqA-0CpdTW8IXDXLJLhiYF_AejQLm9tGrngzR3fD1dbYF5xMw7F27LHwc7GNzqN2d_wACgYKAQgSARISFQHGX2MiJLv28pPfjSXJHiRizi_UNhoVAUF8yKrns5sWypcgdiZ8-e41MITl0076"
+	Secure1PSIDTS = "sidts-CjIBwQ9iI-_y9yjtNBMTNcJr-R_YBYsszEWcJwigXQ08uoX_xlEyHOsxspPN9lAL5M2TNhAA"
 
 	// Cookie 字符串 (由 CookieManager 生成)
 	Cookie = ""
@@ -38,6 +40,10 @@ var (
 	// Cookie 变更回调列表
 	cookieChangeCallbacks []CookieChangeCallback
 	callbackMutex         sync.RWMutex
+
+	// Cookie 旋转节流
+	lastCookieRotate time.Time
+	rotateMutex      sync.Mutex
 )
 
 func init() {
@@ -131,9 +137,27 @@ func SetCookie(cookie string) {
 func RefreshCookie() error {
 	ctx := gctx.GetInitCtx()
 
+	rotateMutex.Lock()
+	defer rotateMutex.Unlock()
+
+	// 最小间隔 1 分钟，避免频繁刷新导致签名会话错位
+	if !lastCookieRotate.IsZero() && time.Since(lastCookieRotate) < time.Minute {
+		g.Log().Debug(ctx, "跳过刷新: 距上次刷新不足 1 分钟")
+		return nil
+	}
+
+	// 读取当前主 Cookie（保持 __Secure-1PSID 不变）
+	cookieMutex.RLock()
+	psid := Secure1PSID
+	psidts := Secure1PSIDTS
+	cookieMutex.RUnlock()
+	if psid == "" {
+		return fmt.Errorf("缺少 __Secure-1PSID，无法刷新")
+	}
+
 	cookies := map[string]string{
-		"__Secure-1PSID":   Secure1PSID,
-		"__Secure-1PSIDTS": Secure1PSIDTS,
+		"__Secure-1PSID":   psid,
+		"__Secure-1PSIDTS": psidts,
 	}
 
 	newPSIDTS, err := CookieMgr.RotateCookies(ctx, cookies)
@@ -141,19 +165,22 @@ func RefreshCookie() error {
 		return err
 	}
 
-	// 更新 PSIDTS
+	// 更新内存中的 TS 与 CookieManager
 	cookieMutex.Lock()
 	Secure1PSIDTS = newPSIDTS
 	cookieMutex.Unlock()
+	CookieMgr.Secure1PSIDTS = newPSIDTS
 
-	// 重新获取完整的 Cookie
-	_, cookieStr, err := CookieMgr.GetAccessToken(ctx)
-	if err != nil {
-		// 如果获取失败,使用基本的 cookie
-		SetCookie("__Secure-1PSID=" + Secure1PSID + "; __Secure-1PSIDTS=" + Secure1PSIDTS)
+	// 重新获取完整的 Cookie（保持主 PSID 不变，只刷新 TS）
+	if _, cookieStr, err := CookieMgr.GetAccessToken(ctx); err != nil {
+		// 获取失败则回退到基础串
+		SetCookie("__Secure-1PSID=" + psid + "; __Secure-1PSIDTS=" + newPSIDTS)
+		g.Log().Warning(ctx, "获取 AccessToken 失败，使用基础 Cookie:", err)
 	} else {
 		SetCookie(cookieStr)
 	}
+
+	lastCookieRotate = time.Now()
 
 	// 保存到存储 (文件或数据库)
 	if err := SaveCookieToStorage(ctx); err != nil {

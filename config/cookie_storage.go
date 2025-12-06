@@ -153,8 +153,8 @@ func SaveCookieToStorage(ctx context.Context) error {
 
 	cookieMutex.RLock()
 	data := &CookieData{
-		Secure1PSID:   Secure1PSID,
-		Secure1PSIDTS: Secure1PSIDTS,
+		Secure1PSID:    Secure1PSID,
+		Secure1PSIDTS:  Secure1PSIDTS,
 	}
 	cookieMutex.RUnlock()
 

@@ -5,7 +5,7 @@ import (
 )
 
 // URL_PATH_DOMAIN_MAP 路径前缀到域名的映射表
-// 根据实际抓取的URL列表建立映射关系
+// 用于客户端 JavaScript 拦截器判断相对路径应该请求哪个域名
 // 格式：路径前缀 -> 域名
 var URL_PATH_DOMAIN_MAP = map[string]string{
 	// gemini.google.com 的路径
@@ -59,18 +59,15 @@ var URL_PATH_DOMAIN_MAP = map[string]string{
 	"/gtag/":   "www.googletagmanager.com",
 	"/static/": "www.googletagmanager.com",
 
-	// region1.google-analytics.com 和 region1.analytics.google.com 的路径
+	// region1.google-analytics.com 的路径
 	"/g/collect": "region1.google-analytics.com",
 
 	// www.google.co.uk 的路径
 	"/ads/ga-audiences": "www.google.co.uk",
 
-	// lh3.googleusercontent.com 和 lh3.google.com 的路径
-	"/ogw/":  "lh3.googleusercontent.com",
-	"/a/":    "lh3.googleusercontent.com",
-	"/gg/":   "lh3.googleusercontent.com",
-	"/gg-dl/": "lh3.googleusercontent.com",
-	"/rd-gg": "lh3.google.com",
+	// 移除所有通用的图片路径，避免误判：
+	// "/gg/", "/a/", "/ogw/", "/gg-dl/", "/rd-gg" - 这些路径太通用
+	// 图片请求应该依赖当前页面的域名，而不是路径映射
 
 	// drive-thirdparty.googleusercontent.com 的路径
 	"/32/type": "drive-thirdparty.googleusercontent.com",
@@ -84,37 +81,6 @@ var URL_PATH_DOMAIN_MAP = map[string]string{
 
 	// contribution.usercontent.google.com 的路径
 	"/download": "contribution.usercontent.google.com",
-}
-
-// GetDomainFromPath 根据路径获取对应的域名
-// 优先使用精确的路径前缀匹配
-func GetDomainFromPath(path string) string {
-	// 首先尝试从路径中直接提取域名（如果路径包含域名）
-	domainFromPath := ExtractOriginalDomainFromPath(path)
-	if domainFromPath != "" {
-		return domainFromPath
-	}
-
-	// 如果路径不包含域名，使用路径映射表
-	// 按路径长度降序排序匹配（更长的路径优先匹配）
-	longestMatch := ""
-	matchedDomain := ""
-
-	for prefix, domain := range URL_PATH_DOMAIN_MAP {
-		if strings.HasPrefix(path, prefix) {
-			if len(prefix) > len(longestMatch) {
-				longestMatch = prefix
-				matchedDomain = domain
-			}
-		}
-	}
-
-	if matchedDomain != "" {
-		return matchedDomain
-	}
-
-	// 默认返回 gemini.google.com
-	return "gemini.google.com"
 }
 
 // ExtractDomainFromReferer 从Referer中提取原始域名
@@ -134,4 +100,57 @@ func ExtractDomainFromReferer(referer string, proxyHost string) string {
 	}
 
 	return ""
+}
+
+// ExtractDomainAndPathFromProxyPath 从代理路径中提取原始域名和真实路径
+// 输入: /gemini.google.com/app/chat?q=test
+// 输出: domain="gemini.google.com", path="/app/chat"
+// 新方案：路径格式为 /domain/path，域名嵌入在路径的第一段
+// 兼容旧格式：当路径未携带域名时，尝试通过 URL_PATH_DOMAIN_MAP 最长前缀匹配推断域名
+func ExtractDomainAndPathFromProxyPath(proxyPath string) (domain string, realPath string) {
+	// 移除开头的斜杠
+	trimmedPath := strings.TrimPrefix(proxyPath, "/")
+
+	if trimmedPath == "" {
+		return "", "/"
+	}
+
+	// 查找第一个斜杠的位置（域名和路径的分隔符）
+	slashIndex := strings.Index(trimmedPath, "/")
+
+	var possibleDomain string
+	if slashIndex == -1 {
+		// 没有找到斜杠，整个字符串可能是域名
+		possibleDomain = trimmedPath
+		realPath = "/"
+	} else {
+		// 找到斜杠，分割域名和路径
+		possibleDomain = trimmedPath[:slashIndex]
+		realPath = "/" + trimmedPath[slashIndex+1:]
+	}
+
+	// 验证是否在已知域名列表中
+	for _, knownDomain := range DOMAIN_LIST {
+		if possibleDomain == knownDomain {
+			return possibleDomain, realPath
+		}
+	}
+
+	// 兼容旧格式：根据路径前缀映射推断域名（最长前缀优先）
+	longestMatch := ""
+	matchedDomain := ""
+	for prefix, mappedDomain := range URL_PATH_DOMAIN_MAP {
+		if strings.HasPrefix(proxyPath, prefix) {
+			if len(prefix) > len(longestMatch) {
+				longestMatch = prefix
+				matchedDomain = mappedDomain
+			}
+		}
+	}
+	if matchedDomain != "" {
+		return matchedDomain, proxyPath
+	}
+
+	// 如果第一部分不是有效域名，返回空域名（表示这不是新格式的路径）
+	return "", proxyPath
 }

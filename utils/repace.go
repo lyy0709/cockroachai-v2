@@ -8,9 +8,9 @@ import (
 )
 
 // Replace 替换内容中的所有目标域名为代理域名
-// 格式：https://original-domain.com/path -> https://proxy-host/path
-// 不再在URL中包含原始域名，通过路径映射表确定目标域名
-func Replace(ctx gctx.Ctx, content string, scheme string, host string) string {
+// 新方案：https://original-domain.com/path -> https://proxy-host/original-domain.com/path
+// 同时处理相对路径：/path -> /original-domain.com/path
+func Replace(ctx gctx.Ctx, content string, scheme string, host string, originalDomain string) string {
 	result := content
 
 	// 首先移除 HTML 中的内嵌 CSP meta 标签
@@ -50,7 +50,8 @@ func Replace(ctx gctx.Ctx, content string, scheme string, host string) string {
 				pathPart = "/" + pathPart
 			}
 
-			return scheme + "://" + host + pathPart
+			// 关键修改：在路径前添加域名
+			return scheme + "://" + host + "/" + domain + pathPart
 		})
 
 		// 2. 匹配协议相对URL：//domain/path（常见于HTML/JS中）
@@ -74,7 +75,8 @@ func Replace(ctx gctx.Ctx, content string, scheme string, host string) string {
 				pathPart = "/" + pathPart
 			}
 
-			return "//" + host + pathPart
+			// 关键修改：在路径前添加域名
+			return "//" + host + "/" + domain + pathPart
 		})
 
 		// 3. 匹配不带协议的相对URL（如在JS或CSS中）
@@ -108,13 +110,18 @@ func Replace(ctx gctx.Ctx, content string, scheme string, host string) string {
 				}
 			}
 
-			return prefix + host + pathPart
+			// 关键修改：在路径前添加域名
+			return prefix + host + "/" + domain + pathPart
 		})
 	}
 
+	// 注意：不在服务端替换相对路径（如 /path），因为：
+	// 1. 服务端不知道相对路径的正确目标域名（如 /punctual 实际指向 signaler-pa.clients6.google.com）
+	// 2. 让 JavaScript 拦截器配合路径映射表来处理所有相对路径
+
 	// 在 URL 替换完成后，再注入代理脚本（这样脚本内容不会被替换）
 	if isHTML {
-		result = InjectProxyScript(result, scheme, host)
+		result = InjectProxyScript(result, scheme, host, originalDomain)
 	}
 
 	return result
@@ -134,7 +141,7 @@ func RemoveInlineCSP(content string) string {
 }
 
 // InjectProxyScript 注入 JavaScript 代码来拦截动态生成的 URL
-func InjectProxyScript(content string, scheme string, host string) string {
+func InjectProxyScript(content string, scheme string, host string, originalDomain string) string {
 	// 构建域名映射 JavaScript 对象
 	var domainMapParts []string
 	for _, domain := range DOMAIN_LIST {
@@ -142,12 +149,21 @@ func InjectProxyScript(content string, scheme string, host string) string {
 	}
 	domainMapJS := "{" + strings.Join(domainMapParts, ", ") + "}"
 
+	// 构建路径到域名的映射 JavaScript 对象
+	var pathMapParts []string
+	for path, domain := range URL_PATH_DOMAIN_MAP {
+		pathMapParts = append(pathMapParts, `"`+path+`": "`+domain+`"`)
+	}
+	pathMapJS := "{" + strings.Join(pathMapParts, ", ") + "}"
+
 	// 清洁版脚本（临时添加调试日志）
 	cleanScript := `
 (function() {
     var proxyHost = "PROXY_SCHEME://PROXY_HOST";
+    var currentDomain = "CURRENT_DOMAIN";
     var targetDomains = TARGET_DOMAINS_MAP;
-    console.log('[Proxy] Interceptor loaded. Proxy:', proxyHost, 'Domains:', Object.keys(targetDomains).length);
+    var pathToDomainMap = PATH_TO_DOMAIN_MAP;
+    console.log('[Proxy] Interceptor loaded. Proxy:', proxyHost, 'Current domain:', currentDomain, 'Domains:', Object.keys(targetDomains).length, 'Path mappings:', Object.keys(pathToDomainMap).length);
 
     function shouldIgnoreRequest(url) {
         if (!url || typeof url !== 'string') return false;
@@ -169,13 +185,48 @@ func InjectProxyScript(content string, scheme string, host string) string {
         if (shouldIgnoreRequest(url)) {
             return null;
         }
+        // 处理相对路径：/path -> /targetDomain/path
         if (url.startsWith('/') && !url.startsWith('//')) {
+            // 检查是否已经是新格式（/domain.com/path）
+            var pathWithoutSlash = url.substring(1);
+            var isAlreadyNewFormat = false;
+            for (var domain in targetDomains) {
+                if (pathWithoutSlash.startsWith(domain + '/') || pathWithoutSlash === domain) {
+                    isAlreadyNewFormat = true;
+                    break;
+                }
+            }
+            if (isAlreadyNewFormat) {
+                return url;
+            }
+
+            // 使用路径映射表查找目标域名（最长前缀匹配）
+            var targetDomain = null;
+            var longestMatch = '';
+            for (var pathPrefix in pathToDomainMap) {
+                if (url.startsWith(pathPrefix) && pathPrefix.length > longestMatch.length) {
+                    longestMatch = pathPrefix;
+                    targetDomain = pathToDomainMap[pathPrefix];
+                }
+            }
+
+            // 如果找到匹配，使用映射的域名；否则使用当前域名
+            if (!targetDomain) {
+                targetDomain = currentDomain;
+            }
+
+            if (targetDomain) {
+                var rewritten = '/' + targetDomain + url;
+                console.log('[Proxy] Relative path rewrite:', url, '->', rewritten, '(target:', targetDomain + ')');
+                return rewritten;
+            }
             return url;
         }
         try {
             var urlObj = new URL(url, window.location.href);
             if (targetDomains[urlObj.hostname]) {
-                var rewritten = proxyHost + urlObj.pathname + urlObj.search + urlObj.hash;
+                // 关键修改：在路径前添加域名
+                var rewritten = proxyHost + '/' + urlObj.hostname + urlObj.pathname + urlObj.search + urlObj.hash;
                 console.log('[Proxy] URL rewrite:', urlObj.hostname, url, '->', rewritten);
                 return rewritten;
             }
@@ -205,29 +256,70 @@ func InjectProxyScript(content string, scheme string, host string) string {
     // 拦截 Response 对象，替换响应体中的 URL
     function wrapResponse(response, url) {
         var isBatchExecute = url && url.includes && url.includes('batchexecute');
+        var isStreamGenerate = url && url.includes && url.includes('StreamGenerate');
 
-        // 如果不是 batchexecute，直接返回原始响应
-        if (!isBatchExecute) {
+        // 仅在 batchexecute 或 StreamGenerate 时处理
+        if (!isBatchExecute && !isStreamGenerate) {
             return response;
         }
 
-        console.log('[Proxy] Wrapping batchexecute response');
+        console.log('[Proxy] Wrapping response for URL:', url);
 
         // 替换文本中的 URL
         function replaceUrlsInText(text) {
             var modified = text;
             var count = 0;
-            Object.keys(targetDomains).forEach(function(domain) {
-                // 匹配 https://domain 或 http://domain，包括转义的版本
-                var escapedDomain = domain.replace(/\./g, '\\.');
-                // 匹配正常和 JSON 转义的 URL (\u003d, \u0026 等)
-                var regex1 = new RegExp('https?://' + escapedDomain, 'g');
-                var regex2 = new RegExp('https?:\\\\/\\\\/' + escapedDomain, 'g');
 
-                var beforeCount = (modified.match(regex1) || []).length + (modified.match(regex2) || []).length;
-                modified = modified.replace(regex1, proxyHost);
-                modified = modified.replace(regex2, proxyHost.replace(/:/g, '\\u003a').replace(/\//g, '\\/'));
-                var afterCount = (modified.match(new RegExp(proxyHost.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length;
+            Object.keys(targetDomains).forEach(function(domain) {
+                // 匹配 https://domain/path 或 http://domain/path，包括转义的版本
+                var escapedDomain = domain.replace(/\./g, '\\.');
+                // 匹配正常的 URL (包括路径)
+                var regex1 = new RegExp('(https?://)' + escapedDomain + '(/[^\\s"\'<>]*)?', 'g');
+                // 匹配 JSON 转义的 URL (\u003d, \u0026 等)
+                var regex2 = new RegExp('(https?:\\\\/\\\\/)' + escapedDomain + '(\\\\/[^\\s"\'<>]*)?', 'g');
+                // 匹配协议相对的 //domain/path
+                var regex3 = new RegExp('(//)' + escapedDomain + '(/[^\\s"\'<>]*)?', 'g');
+                // 匹配转义的协议相对 URL
+                var regex4 = new RegExp('(\\\\/\\\\/)' + escapedDomain + '(\\\\/[^\\s"\'<>]*)?', 'g');
+
+                var beforeCount = (modified.match(regex1) || []).length +
+                    (modified.match(regex2) || []).length +
+                    (modified.match(regex3) || []).length +
+                    (modified.match(regex4) || []).length;
+
+                // 关键修改：保留域名和路径
+                modified = modified.replace(regex1, function(match, protocol, path) {
+                    var finalPath = path || '/';
+                    var finalDomain = domain;
+
+                    // 特殊处理：lh3.googleusercontent.com 的 /gg/ 路径
+                    // 保持 /gg/ 原路径，不做额外重写，避免签名失效
+
+                    return proxyHost + '/' + finalDomain + finalPath;
+                });
+                modified = modified.replace(regex2, function(match, protocol, path) {
+                    var finalPath = path ? path.replace(/\\\\/g, '/') : '/';
+                    var finalDomain = domain;
+
+                    // 特殊处理：lh3.googleusercontent.com 的 /gg/ 路径
+                    // 保持 /gg/ 原路径，不做额外重写，避免签名失效
+
+                    var escapedProxyHost = proxyHost.replace(/:/g, '\\u003a').replace(/\//g, '\\/');
+                    var escapedPath = finalPath.replace(/\//g, '\\/');
+                    return escapedProxyHost + '\\/' + finalDomain.replace(/\./g, '\\.') + escapedPath;
+                });
+                modified = modified.replace(regex3, function(match, protocol, path) {
+                    var finalPath = path || '/';
+                    return '//' + host + '/' + domain + finalPath;
+                });
+                modified = modified.replace(regex4, function(match, protocol, path) {
+                    var finalPath = path ? path.replace(/\\\\/g, '/') : '/';
+                    var escapedPath = finalPath.replace(/\//g, '\\/');
+                    return '\\/\\/' + host.replace(/\./g, '\\.') + '\\/' + domain.replace(/\./g, '\\.') + escapedPath;
+                });
+
+                var afterCount = (modified.match(new RegExp(proxyHost.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length +
+                    (modified.match(new RegExp('\/\/' + host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\/' + escapedDomain, 'g')) || []).length;
                 count += (afterCount - beforeCount);
             });
             if (count > 0) {
@@ -312,13 +404,40 @@ func InjectProxyScript(content string, scheme string, host string) string {
         var count = 0;
         Object.keys(targetDomains).forEach(function(domain) {
             var escapedDomain = domain.replace(/\./g, '\\.');
-            var regex1 = new RegExp('https?://' + escapedDomain, 'g');
-            var regex2 = new RegExp('https?:\\\\/\\\\/' + escapedDomain, 'g');
+            // 匹配正常的 URL (包括路径)
+            var regex1 = new RegExp('(https?://)' + escapedDomain + '(/[^\\s"\'<>]*)?', 'g');
+            // 匹配 JSON 转义的 URL
+            var regex2 = new RegExp('(https?:\\\\/\\\\/)' + escapedDomain + '(\\\\/[^\\s"\'<>]*)?', 'g');
+            // 匹配协议相对 URL
+            var regex3 = new RegExp('(//)' + escapedDomain + '(/[^\\s"\'<>]*)?', 'g');
+            // 匹配转义的协议相对 URL
+            var regex4 = new RegExp('(\\\\/\\\\/)' + escapedDomain + '(\\\\/[^\\s"\'<>]*)?', 'g');
 
-            var matches = (modified.match(regex1) || []).length + (modified.match(regex2) || []).length;
+            var matches = (modified.match(regex1) || []).length +
+                (modified.match(regex2) || []).length +
+                (modified.match(regex3) || []).length +
+                (modified.match(regex4) || []).length;
             if (matches > 0) {
-                modified = modified.replace(regex1, proxyHost);
-                modified = modified.replace(regex2, proxyHost.replace(/:/g, '\\u003a').replace(/\//g, '\\/'));
+                // 关键修改：保留域名和路径
+                modified = modified.replace(regex1, function(match, protocol, path) {
+                    var finalPath = path || '/';
+                    return proxyHost + '/' + domain + finalPath;
+                });
+                modified = modified.replace(regex2, function(match, protocol, path) {
+                    var finalPath = path ? path.replace(/\\\\/g, '/') : '/';
+                    var escapedProxyHost = proxyHost.replace(/:/g, '\\u003a').replace(/\//g, '\\/');
+                    var escapedPath = finalPath.replace(/\//g, '\\/');
+                    return escapedProxyHost + '\\/' + domain.replace(/\./g, '\\.') + escapedPath;
+                });
+                modified = modified.replace(regex3, function(match, protocol, path) {
+                    var finalPath = path || '/';
+                    return '//' + host + '/' + domain + finalPath;
+                });
+                modified = modified.replace(regex4, function(match, protocol, path) {
+                    var finalPath = path ? path.replace(/\\\\/g, '/') : '/';
+                    var escapedPath = finalPath.replace(/\//g, '\\/');
+                    return '\\/\\/' + host.replace(/\./g, '\\.') + '\\/' + domain.replace(/\./g, '\\.') + escapedPath;
+                });
                 count += matches;
             }
         });
@@ -588,7 +707,9 @@ func InjectProxyScript(content string, scheme string, host string) string {
 
 	// 替换占位符
 	proxyScript := strings.ReplaceAll(cleanScript, "PROXY_SCHEME://PROXY_HOST", scheme+"://"+host)
+	proxyScript = strings.ReplaceAll(proxyScript, "CURRENT_DOMAIN", originalDomain)
 	proxyScript = strings.ReplaceAll(proxyScript, "TARGET_DOMAINS_MAP", domainMapJS)
+	proxyScript = strings.ReplaceAll(proxyScript, "PATH_TO_DOMAIN_MAP", pathMapJS)
 
 	proxyScript = "<script>" + proxyScript + "</script>"
 
@@ -605,11 +726,4 @@ func InjectProxyScript(content string, scheme string, host string) string {
 	}
 
 	return content
-}
-
-// ExtractDomainFromPath 从URL路径中提取域名（使用新的域名列表）
-// 例如："/gemini.google.com/path/to/file" -> "gemini.google.com"
-// 已被 domains.go 中的 ExtractOriginalDomainFromPath 替代，保留此函数以兼容
-func ExtractDomainFromPath(path string) string {
-	return ExtractOriginalDomainFromPath(path)
 }
